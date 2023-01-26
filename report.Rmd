@@ -1,0 +1,173 @@
+---
+title: "StatComp Project 2: Scottish weather"
+author: "Axel Eichelmann (s2030757, axeleichelmann)"
+output:
+  html_document:
+    number_sections: no
+  pdf_document:
+    number_sections: no
+header-includes:
+  - \newcommand{\bm}[1]{\boldsymbol{#1}}
+  - \newcommand{\mat}[1]{\begin{bmatrix}#1\end{bmatrix}}
+---
+
+```{r setup, include = FALSE}
+# Modify this setup code chunk to set options
+# or add extra packages etc if needed.
+# See the project instructions for more details
+# on what code to show, and where/how.
+
+# Set default code chunk options
+knitr::opts_chunk$set(
+  echo = FALSE,
+  eval = TRUE
+)
+
+suppressPackageStartupMessages(library(tidyverse))
+theme_set(theme_bw())
+suppressPackageStartupMessages(library(StatCompLab))
+
+# To give the same random number sequence every time the document is knit:ed,
+# making it easier to discuss the specific numbers in the text:
+set.seed(12345L)
+```
+
+```{r code=readLines("functions.R"), eval=TRUE, echo=FALSE}
+# Do not change this code chunk
+# Load function definitions
+source("functions.R")
+```
+
+
+# Scottish Weather Data
+The data set `ghcnd_values` contain daily measurements of weather variables (such as precipitation, temperature, etc.) from the following 8 weather stations in Scotland
+```{r station}
+knitr::kable(ghcnd_stations)
+```
+from the $1^{st}$ of January 1960 to the $31^{st}$ of December 2018 in this section, we will seek to gain an understanding of how the probability of rainfall, as well as precipitation measurements vary across the year.
+
+### Seasonal Variance in Precipitation Amount
+The figure below shows daily precipitation data from the year 1985 for each station. We also include the temperature data to show that the seasonal effects on precipitation are much less clear than their effects on temperature.
+
+```{r data_plot, echo=FALSE}
+newvals <- ghcnd_values %>% left_join(ghcnd_stations, by = "ID")
+data_1985 <- rbind(filter(newvals, Year == 1985, Element == 'PRCP'), 
+                   filter(newvals, Year == 1985, Element == 'TMAX'),
+                   filter(newvals, Year == 1985, Element == 'TMIN'))
+
+ggplot(data = data_1985, aes(DecYear))+geom_point(aes(y = Value, colour = Name))+facet_wrap(~Element, scales = 'free')+labs(title="1985 Weather Data", x = "Year")
+```
+
+As we can see, there is an obvious increase in Maximum and Minimum temperature during the summer months. In contrast, there is no clear trend for the precipitation data. 
+
+In order to get a better understanding of the behaviour of rainfall throughout the year, we will carry out a Monte-Carlo premutation test on the hypothesis:
+$$ H_0: \text{The rainfall distribution is the same in winter as in summer} \\
+H_1: \text{The winter and summer distributions have different expected values}$$
+
+Here we will let the test statistic be $T = |\text{Winter Average Rainfall} - \text{Summer Average Rainfall}|$. Under the null hypothesis, the joint sample of Summer plus Winter rainfall would be a set of exchangeable variables, thus any random permutation of this set would have the same distribution as the original summer and winter rainfall data sets themselves. Our original data set gives the mean rainfall in summer and winter across the 8 stations, with corresponding test statistic values as:
+```{r montecarlo_test}
+table <- test_stat()
+colnames(table) <- c("Station ID", "Avg. Summer Rainfall", "Avg. Winter Rainfall", "T-Value")
+knitr::kable(table)
+```
+Taking $10,000$ permutations of the Season Values for each weather station, and using $\frac{1}{J}\sum\limits_{j=1}^J \delta_{(j)}$ (where $\delta_{(j)} = 1$ if the permuted test statistic is greater than the one in the table above, and $0$ otherwise), we get the following estimated p-values:
+```{r p_vals}
+p_table <- cbind('Station Name' = ghcnd_stations$Name, 'Station ID' = ghcnd_stations$ID, 'p-value' = readRDS(file = "data/p_vals_mean.rds"))
+knitr::kable(p_table)
+```
+For the stations where the our estimated p-value is $0$, can can calculate a corresponding $95%$ confidence interval for this estimate as $(0,1-0.025^{1/N})$, where $N = 10,000$ is the number of permutations we used in this test, we get it as $(0,3.69\times 10^{-4})$. Thus for any significance level above $3.69\times 10^{-4}$ (which is extremely low) there is a $95%$ chance our true p-value lies in the critical region. Thus, we can reject $H_0$, and conclude that for these stations it is almost certain that the season has an impact on the expected rainfall. As for the other two stations, we can use Jensen's inequality to find an upper bound for the standard deviation of the estimated p-value as $\sqrt{Var(\hat{p})} \leq \frac{1}{2\sqrt{N}} = 0.005$, thus we know that for these stations the true p-value is likely to lie within $0.005$ of our estimated p-value. In the case of Edinburgh this has little impact since after deducting this standard deviation from our estimated p-value, it still lies at $0.6535$ which lies comfortably within the acceptance region, thus we cannot reject $H_0$. As for Leuchars, this information tells us that the true p-value is likely to lie in the interval $(0.0287, 0.0387)$. Assuming we are working at a $5%$ significance level, we can still reject $H_0$, and conclude that for this station the daily expected rainfall is different in the summer compared to the winter.
+
+### Seasonal Variance in Probability of Rainfall
+In order to get a better understanding of how the probability of rainfall changes throughout the year, we will carry out another Monte-Carlo Permutation test, this time on the hypotheses
+$$H_0: \text{The daily probability of rainfall is the same in winter as in the summer} \\
+H_1: \text{The daily probability of rainfall is different in winter and in summer}$$
+This time, we will use $T = |\text{winter empirical nonzero proportion$−$summer empirical nonzero proportion}|$ as the test statistic. The original data set gives the T-values for each station as:
+```{r prob_tvals}
+table <- prcp_prob()
+colnames(table) <- c("Station ID", "Summer Rainfall Probability", "Winter Rainfall Probability", "T-Value")
+knitr::kable(table)
+```
+Taking $10,000$ permutations of the data for each station, and using $\frac{1}{J}\sum\limits_{j=1}^J \delta_{(j)}$ where $\delta_{(j)}$ is defined as in the previous section, we get the estimated p-values for each station as:
+```{r prob_pvals}
+p_table <- cbind('Station Name' = ghcnd_stations$Name, 'Station ID' = ghcnd_stations$ID, 'p-value' = readRDS(file = "data/p_vals_prob.rds"))
+knitr::kable(p_table)
+```
+Since each of these estimated p-values is $0$, and we used $10,000$ permutations in our test, we get a confidence interval for p as $(0,1-0.025^{1/10,000}) = (0,3.69\times 10^{-4})$. This means that we can again say that for any significance level above $3.69\times 10^{-4}$ there's a $95%$ chance our true p-value lies in the critical region. Thus, we can reject $H_0$, and conclude that at every station the daily probability of rainfall is affected by the season.
+
+# Spatial Weather Prediction
+Below is a plot of the average daily precipitation in each month, averaged out across all the year in our ```ghcnd_values``` data set.
+```{r monthlyavg}
+ggplot(data = graph_monthly_avg, aes(Month))+geom_point(aes(y = monthly_mu, color = Name)) +
+  facet_wrap(~Name) +labs(y = "Average Precicpiation Amount")
+```
+
+This graph shows that at each location the monthly average precipitation follows a wave-like curve with peaks in January and October meaning we can model this easily using a $\cos$ wave. We also see that for stations which are further west such as Ardtalnaig and Benmore, the amplitude of this curve is greater since there is a higher average rainfall in the winter months compared to the other stations. Now, using the ```lm``` function we can estimate a multiple linear regression model for the monthly average rainfall as
+$$y_i = 25.84-2.205\theta_{i1}-0.5493\theta_{i2}+8.941\times 10^{-4}\theta_{i3}+0.8333\theta{i4}+e_i$$
+where for each $(\theta_{i1},\theta_{i2},\theta_{i3},\theta_{i4}) = (x_{i1},x_{i2},x_{i3},\cos(\frac{365x_{i4}}{300}2\pi)$ and $x_{i1},x_{i2},x_{i3},x_{i4}$ are the values of the longitude, latitude, elevation, and DecYear given in the ```ghcnd_values``` data frame respectively, and $e_i$ is the random error component. Here I chose to model the seasonal variation using $\cos(\frac{365x_{i4}}{300}2\pi)$ since the peaks of this function are in January and October, thus follows the seasonal trend from the above figure fairly accurately. The figure below plots the prediciton of this model on the data subset of ```ghcnd_values``` from the year 1987 (chosen randomly for the sake of testing the model).
+
+```{r model_display}
+newdata <- monthly_avg_data %>% filter(Year == 1987)
+data_pred <- cbind(newdata, data.frame(fit = predict(model, newdata, interval = "prediction")))
+
+ggplot(data = data_pred, aes((DecYear-Year)*12))+geom_point(aes(x = Month, y = monthly_avg, color = Name)) +
+  geom_line(aes(y = fit.fit)) + geom_ribbon(aes(ymin = fit.lwr, ymax = fit.upr), alpha = 0.25) +
+  facet_wrap(~Name) + labs(title = "1987 Monthly Avg. Precipitation vs. Our Model", x = "Month", y = "Avg. Precipitation Amount", legend = "Station Name")
+```
+
+We can also plot the residuals of our model for this year.
+
+```{r residuals}
+ggplot(data = data_pred, aes((DecYear-Year)*12)) + geom_point(aes(y = abs(Value-fit.fit), color = Name)) + facet_wrap(~Name) + labs(x = "Month", y = "Residual Value", title = "Residuals Plot")
+```
+
+As we can see, in this example our model work pretty well since all of the points in the data set lie within the 95% prediction interval of our model, and the Residuals plot shows that most of the fitted values lie within $10mm$ of the true precipitation value on a given day in this year.
+
+### Assesment of our Model
+We now want to see whether the model is equally good at predicting the rainfall for each station, and whether the prediction accuracy is the same across the year. Carrying out a cross-validation test on each station we get scores for each station as:
+```{r cv_station}
+PRCP_data <- ghcnd_values %>% filter(Element == "PRCP") %>% 
+             right_join(ghcnd_stations, by = "ID")
+
+score_data <- PRCP_data %>% 
+                mutate(
+                Sq.Error.Score = proper_score("se", PRCP_data$Value, mean = pred_values$pred),
+                Dawid.Seb.Score = proper_score("ds", PRCP_data$Value,                                                  mean = pred_values$pred, sd = pred_values$pred_sd.se.fit))
+final <- score_data %>% group_by(ID) %>% summarise(avg_se_score = mean(Sq.Error.Score), 
+                                                   avg_ds_score = mean(Dawid.Seb.Score))
+final <- final %>% left_join(ghcnd_stations, by = "ID") %>% select(ID, Name, avg_se_score, avg_ds_score)
+colnames(final) <- c("Station ID", "Station Name", "Average Squared Error Score", "Average Dawid-Sebastiani Score")
+knitr::kable(final)
+```
+
+As we can see from these results, our model is definitely better at predicting results for certain stations compared to others. In particular, it does a poor job at making predictions for Benmore and Ardtalnaig, possibly due to the fact that these are the stations whose precipitation values vary the most across the year. The lowest squared-error and Dawid-Sebastiani score here corresponds to the Edinburgh Station. This coincides with the fact that Edinburgh did not show evidence for having different precipitation variation in the different seasons (as calculated in the permutation test earlier). We can theorise from this information that our model may not account very well for seasonal variation in precipitation.
+
+Now, we can also carry out a cross-validation test to see whether the model makes better predictions for certain months compared to others.
+
+```{r cv_month}
+PRCP_data <- ghcnd_values %>% filter(Element == "PRCP") %>% 
+             right_join(ghcnd_stations, by = "ID")
+score_month_data <- PRCP_data %>% 
+                mutate(
+                Sq.Error.Score = proper_score("se", PRCP_data$Value, mean = pred_month_values$pred),
+                Dawid.Seb.Score = proper_score("ds", PRCP_data$Value,                                                  mean = pred_month_values$pred, sd = pred_month_values$pred_sd.se.fit))
+final_month <- score_month_data %>% group_by(Month) %>% summarise(avg_se_score = mean(Sq.Error.Score), 
+                                                   avg_ds_score = mean(Dawid.Seb.Score))
+colnames(final_month) <- c("Month", "Average Squared Error Score", "Average Dawid-Sebastiani Score")
+knitr::kable(final_month)
+```
+As we see from these results, our model makes better predictions for the summer months than it does for the winter months as both the squared-error and Dawid-Sebastiani scores are higher in winter than in summer. I believe this is because our model may not account for the greater variation of the precipitation in the winter months, hence the actual precipitation values in these months lie further for the model's expected value than it does in the summer months. This also backs up our theory that the model does not account for seasonal variation in precipitation very well.
+
+# Code appendix
+
+
+## Function definitions
+
+```{r code=readLines("functions.R"), eval=FALSE, echo=TRUE}
+# Do not change this code chunk
+```
+
+## Analysis code
+
+```{r code=readLines("analysis.R"), eval=FALSE, echo=TRUE}
+# Do not change this code chunk
+```
