@@ -1,6 +1,6 @@
 # Statistical Computing Coursework Project - Scottish Weather Analysis
 
-![scottish landscape](assets/scottish-weather-banner.png)
+![scottish landscape](assets/scotland-landscape.jpg)
 
 This repository contains the work done for the Scottish Weather Analysis in R project in the Statistical Computing course at the University of Edinburgh. The final report submitted achieved a 1st - the highest attainable grade.
 
